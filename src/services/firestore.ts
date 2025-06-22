@@ -1,3 +1,4 @@
+
 import { 
   collection, 
   doc, 
@@ -12,7 +13,8 @@ import {
   startAfter,
   QueryDocumentSnapshot,
   DocumentData,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '@/config/firebase.config';
 import { Order, User } from '@/types';
@@ -91,6 +93,22 @@ export const updateOrder = async (orderId: string, updateData: Partial<Order>) =
   
   await updateDoc(orderRef, updatePayload);
   return updatePayload;
+};
+
+// Batch update function for multiple orders - reduces write operations
+export const batchUpdateOrders = async (updates: Array<{ id: string; data: Partial<Order> }>) => {
+  const batch = writeBatch(db);
+  
+  updates.forEach(({ id, data }) => {
+    const orderRef = doc(db, 'orders', id);
+    batch.update(orderRef, {
+      ...data,
+      UpdatedAt: new Date().toISOString()
+    });
+  });
+  
+  await batch.commit();
+  console.log(`Batch updated ${updates.length} orders successfully`);
 };
 
 export const deleteOrder = async (orderId: string) => {

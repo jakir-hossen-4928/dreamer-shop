@@ -18,6 +18,7 @@ import {
   updateOrder,
   deleteOrder as deleteOrderFromFirestore,
   getOrderById,
+  batchUpdateOrders,
 } from "@/services/firestore";
 import { checkBDFraud } from "@/api/bdcourier";
 import BDCourierRatioResult from "@/components/orders/BDCourierRatioResult";
@@ -91,11 +92,26 @@ const Orders = () => {
     };
   }, []);
 
-  // Fetch Steadfast balance
+  // Fetch Steadfast balance with caching
   const fetchBalance = useCallback(async () => {
+    // Check cache first (5 minutes)
+    const cachedBalance = sessionStorage.getItem('steadfast_balance');
+    const cacheTimestamp = sessionStorage.getItem('steadfast_balance_timestamp');
+    
+    if (cachedBalance && cacheTimestamp) {
+      const age = Date.now() - parseInt(cacheTimestamp);
+      if (age < 5 * 60 * 1000) { // 5 minutes
+        setBalance(JSON.parse(cachedBalance));
+        return;
+      }
+    }
+
     try {
       const result = await getCurrentBalance();
       setBalance(result);
+      // Cache the result
+      sessionStorage.setItem('steadfast_balance', JSON.stringify(result));
+      sessionStorage.setItem('steadfast_balance_timestamp', Date.now().toString());
     } catch (error: any) {
       console.error("Error fetching balance:", error);
       toast({
@@ -121,7 +137,7 @@ const Orders = () => {
     );
   }, [orders, searchTerm, statusFilter]);
 
-  // Fetch orders
+  // Fetch orders with optimized pagination
   const fetchOrders = useCallback(
     async (page: number = 1) => {
       try {
@@ -151,7 +167,7 @@ const Orders = () => {
     []
   );
 
-  // Handle order creation/editing
+  // Handle order creation/editing with validation
   const handleOrderSubmit = useCallback(
     async (data: OrderData, isEdit = false, orderId?: string) => {
       try {
@@ -230,6 +246,7 @@ const Orders = () => {
     [orders, selectedOrders]
   );
 
+  // Optimized Steadfast success handler with batch operations
   const handleSteadfastSuccess = useCallback(
     async (successOrders: (Order & { id: string })[], trackingIds: string[]) => {
       try {
@@ -243,28 +260,55 @@ const Orders = () => {
           return;
         }
 
-        for (let i = 0; i < successOrders.length; i++) {
-          const order = successOrders[i];
-          const trackingId = trackingIds[i];
-          await updateOrder(order.id, {
+        // Prepare batch updates
+        const batchUpdates = successOrders.map((order, index) => ({
+          id: order.id,
+          data: {
             ...order,
             Status: "Confirmed",
-            "Steadfast-tracking-id": trackingId,
+            "Steadfast-tracking-id": trackingIds[index],
+            UpdatedAt: new Date().toISOString(),
+          }
+        }));
+
+        try {
+          // Use batch update for better performance
+          await batchUpdateOrders(batchUpdates);
+          
+          toast({
+            title: "Success",
+            description: `${successOrders.length} order${successOrders.length > 1 ? "s" : ""} confirmed with tracking ID${successOrders.length > 1 ? "s" : ""}`,
+          });
+          
+          setShowSteadfastModal(false);
+          fetchOrders(currentPage);
+          
+          // Refresh balance after successful order
+          setTimeout(() => {
+            sessionStorage.removeItem('steadfast_balance');
+            sessionStorage.removeItem('steadfast_balance_timestamp');
+            fetchBalance();
+          }, 1000);
+          
+        } catch (firestoreError: any) {
+          console.error("Error updating orders in Firestore:", firestoreError);
+          toast({ 
+            title: "Data Storage Error", 
+            description: `Orders were sent to Steadfast but failed to update in database: ${firestoreError.message}`,
+            variant: "destructive" 
           });
         }
 
-        toast({
-          title: "Success",
-          description: `${successOrders.length} order${successOrders.length > 1 ? "s" : ""} confirmed with tracking ID${successOrders.length > 1 ? "s" : ""}`,
-        });
-        setShowSteadfastModal(false);
-        fetchOrders(currentPage);
       } catch (error: any) {
-        console.error("Error updating orders:", error);
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        console.error("Error in Steadfast success handler:", error);
+        toast({ 
+          title: "Error", 
+          description: `Failed to process Steadfast orders: ${error.message}`,
+          variant: "destructive" 
+        });
       }
     },
-    [currentPage, fetchOrders]
+    [currentPage, fetchOrders, fetchBalance]
   );
 
   // Download invoices
