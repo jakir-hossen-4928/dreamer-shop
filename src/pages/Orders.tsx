@@ -325,13 +325,39 @@ const Orders = () => {
 
       try {
         if (items.length > 1) {
-          // Convert Order & { id: string } to Order for bulk download
-          const orderItems = items.map(({ id, ...order }) => order as Order);
+          // Convert Order & { id: string } to Order for bulk download by reconstructing Order objects
+          const orderItems: Order[] = items.map((item) => ({
+            ID: item.ID,
+            Name: item.Name,
+            Number: item.Number,
+            'Order-Items': item['Order-Items'],
+            Address: item.Address,
+            Amount: item.Amount,
+            Reference: item.Reference,
+            Status: item.Status,
+            'Steadfast-tracking-id': item['Steadfast-tracking-id'],
+            Notes: item.Notes,
+            CreatedAt: item.CreatedAt,
+            UpdatedAt: item.UpdatedAt,
+          }));
           await downloadBulkInvoices(orderItems);
         } else {
-          // Convert Order & { id: string } to Order for single download
-          const { id, ...orderItem } = items[0];
-          await downloadSingleInvoice(orderItem as Order);
+          // Convert Order & { id: string } to Order for single download by reconstructing Order object
+          const orderItem: Order = {
+            ID: items[0].ID,
+            Name: items[0].Name,
+            Number: items[0].Number,
+            'Order-Items': items[0]['Order-Items'],
+            Address: items[0].Address,
+            Amount: items[0].Amount,
+            Reference: items[0].Reference,
+            Status: items[0].Status,
+            'Steadfast-tracking-id': items[0]['Steadfast-tracking-id'],
+            Notes: items[0].Notes,
+            CreatedAt: items[0].CreatedAt,
+            UpdatedAt: items[0].UpdatedAt,
+          };
+          await downloadSingleInvoice(orderItem);
         }
         toast({
           title: "Success",
