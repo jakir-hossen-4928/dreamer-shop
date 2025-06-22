@@ -1,9 +1,9 @@
 
 import React from 'react';
-import BDCourierCheckComponent from '@/components/BDCourierCheck';
+import FraudsCheck from '@/components/FraudsCheck';
 
 const BDCourierCheck: React.FC = () => {
-  return <BDCourierCheckComponent />;
+  return <FraudsCheck />;
 };
 
 export default BDCourierCheck;

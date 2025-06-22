@@ -1,8 +1,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { Order } from '@/types';
-import { getStatusByInvoice, getStatusByTrackingCode, mapDeliveryStatusToOrderStatus } from '@/api/steadfast';
-import { batchUpdateOrders } from '@/services/firestore';
+import { getStatusByInvoice, getStatusByTrackingCode } from '@/api/steadfast';
 import { toast } from '@/hooks/use-toast';
 
 interface StatusQueueItem {
@@ -99,7 +98,7 @@ export const useOrderStatus = (
     [statusQueue]
   );
 
-  // Fetch status for all orders and update Order status
+  // Fetch status for all orders - ONLY update deliveryStatus, not Order Status
   const handleFetchAllSteadfastStatus = useCallback(async () => {
     try {
       const ordersList = orders.filter((o) => o.ID || o["Steadfast-tracking-id"]);
@@ -126,39 +125,14 @@ export const useOrderStatus = (
 
       const results = await Promise.all(statusPromises);
       
-      // Prepare batch updates for orders that need status changes
-      const batchUpdates = results
-        .filter((result): result is StatusResult & { status: string } => 
-          !!result.status && !result.error
-        )
-        .map(({ order, status }) => {
-          const newOrderStatus = mapDeliveryStatusToOrderStatus(status);
-          if (newOrderStatus !== order.Status) {
-            return {
-              id: order.id,
-              data: {
-                Status: newOrderStatus,
-                UpdatedAt: new Date().toISOString(),
-              } as Partial<Order>
-            };
-          }
-          return null;
-        })
-        .filter(Boolean) as Array<{ id: string; data: Partial<Order> }>;
+      // Count successful status checks
+      const successfulChecks = results.filter(result => result.status && !result.error).length;
 
-      // Update orders in Firestore if there are changes
-      if (batchUpdates.length > 0) {
-        await batchUpdateOrders(batchUpdates);
-        toast({
-          title: "Status Update Complete",
-          description: `Updated ${batchUpdates.length} order statuses based on delivery status`,
-        });
-      } else {
-        toast({
-          title: "Status Check Complete",
-          description: "All order statuses are up to date",
-        });
-      }
+      toast({
+        title: "Status Check Complete",
+        description: `Successfully checked ${successfulChecks} order delivery statuses`,
+      });
+      
     } catch (err) {
       toast({ title: "Error", description: "Failed to fetch status", variant: "destructive" });
     }

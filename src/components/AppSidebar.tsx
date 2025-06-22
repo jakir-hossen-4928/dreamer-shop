@@ -18,7 +18,7 @@ import {
   Users,
   LogOut,
   Package,
-  TrendingUp,
+  Shield,
   User,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -38,9 +38,9 @@ const mainMenuItems = [
     icon: ShoppingCart,
   },
   {
-    title: 'BD Courier Check',
+    title: 'Frauds Check',
     url: '/courier-check',
-    icon: TrendingUp,
+    icon: Shield,
   },
 ];
 
