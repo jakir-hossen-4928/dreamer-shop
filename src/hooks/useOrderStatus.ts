@@ -11,6 +11,12 @@ interface StatusQueueItem {
   reject: (reason: any) => void;
 }
 
+interface StatusResult {
+  order: Order & { id: string; deliveryStatus?: string };
+  status?: string;
+  error?: any;
+}
+
 export const useOrderStatus = (
   orders: (Order & { id: string; deliveryStatus?: string })[],
   setOrders: React.Dispatch<React.SetStateAction<(Order & { id: string; deliveryStatus?: string })[]>>
@@ -113,8 +119,8 @@ export const useOrderStatus = (
 
       const statusPromises = ordersList.map((order) =>
         statusQueue.enqueue(order).then(
-          (status) => ({ order, status }),
-          (error) => ({ order, error })
+          (status): StatusResult => ({ order, status }),
+          (error): StatusResult => ({ order, error })
         )
       );
 
@@ -122,7 +128,9 @@ export const useOrderStatus = (
       
       // Prepare batch updates for orders that need status changes
       const batchUpdates = results
-        .filter(({ status, error }) => status && !error)
+        .filter((result): result is StatusResult & { status: string } => 
+          !!result.status && !result.error
+        )
         .map(({ order, status }) => {
           const newOrderStatus = mapDeliveryStatusToOrderStatus(status);
           if (newOrderStatus !== order.Status) {
