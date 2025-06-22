@@ -1,4 +1,3 @@
-
 import { API_CONFIG } from '@/config/api';
 
 export interface SteadfastOrderRequest {
@@ -21,7 +20,7 @@ export interface SteadfastOrderResult {
   tracking_code: string;
   status: string;
   note?: string;
-  message?: string; // Add missing message property
+  message?: string;
 }
 
 export interface SteadfastStatusResponse {
@@ -91,7 +90,7 @@ export const createBulkSteadfastOrders = async (
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
-      data: JSON.stringify(data) // 🔥 this is the actual fix: API expects JSON-encoded array string
+      data: JSON.stringify(data)
     }),
   });
 
@@ -105,9 +104,6 @@ export const createBulkSteadfastOrders = async (
 
   throw new Error(result?.message || 'Bulk order failed');
 };
-
-
-
 
 /**
  * Check delivery status by consignment ID
@@ -128,7 +124,7 @@ export const getStatusByConsignmentId = async (id: string): Promise<SteadfastSta
 };
 
 /**
- * Check delivery status by invoice ID
+ * Check delivery status by invoice ID - NEW METHOD
  */
 export const getStatusByInvoice = async (invoice: string): Promise<SteadfastStatusResponse> => {
   if (!validateSteadfastConfig()) throw new Error('Steadfast API credentials missing!');
@@ -138,9 +134,17 @@ export const getStatusByInvoice = async (invoice: string): Promise<SteadfastStat
     headers: HEADERS,
   });
 
-  const result = await response.json();
+  const text = await response.text();
+
+  let result: any;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Error(text);
+  }
+
   if (!response.ok || result.status !== 200) {
-    throw new Error('Failed to get status');
+    throw new Error(result?.message || 'Failed to get status by invoice');
   }
   return result;
 };
@@ -160,10 +164,6 @@ export const getStatusByTrackingCode = async (
       headers: HEADERS,
     }
   );
-  console.log('Sending request to:', `${API_CONFIG.STEADFAST_API_URL}/status_by_trackingcode/${trackingCode}`);
-console.log('Headers:', HEADERS);
-console.log('API Key:', API_CONFIG.STEADFAST_API_KEY);
-console.log('Secret Key:', API_CONFIG.STEADFAST_SECRET_KEY);
 
   const text = await response.text();
 
@@ -171,7 +171,6 @@ console.log('Secret Key:', API_CONFIG.STEADFAST_SECRET_KEY);
   try {
     result = JSON.parse(text);
   } catch {
-    // If response is not JSON, throw the plain text error (like "Unauthorized Access")
     throw new Error(text);
   }
 
@@ -181,7 +180,6 @@ console.log('Secret Key:', API_CONFIG.STEADFAST_SECRET_KEY);
 
   return result;
 };
-
 
 /**
  * Check current balance
@@ -199,4 +197,26 @@ export const getCurrentBalance = async (): Promise<SteadfastBalanceResponse> => 
     throw new Error('Failed to get balance');
   }
   return result;
+};
+
+/**
+ * Map Steadfast delivery status to Order status
+ */
+export const mapDeliveryStatusToOrderStatus = (deliveryStatus: string): 'Pending' | 'Confirmed' => {
+  switch (deliveryStatus) {
+    case 'delivered':
+    case 'partial_delivered':
+    case 'delivered_approval_pending':
+    case 'partial_delivered_approval_pending':
+      return 'Confirmed';
+    case 'pending':
+    case 'in_review':
+    case 'hold':
+    case 'cancelled':
+    case 'cancelled_approval_pending':
+    case 'unknown':
+    case 'unknown_approval_pending':
+    default:
+      return 'Pending';
+  }
 };

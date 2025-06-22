@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+
+import React, { useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import OrdersToolbar from "@/components/orders/OrdersToolbar";
 import OrdersTable from "@/components/orders/OrdersTable";
@@ -13,34 +14,34 @@ import { downloadSingleInvoice, downloadBulkInvoices } from "@/utils/invoiceGene
 import { debounce } from "lodash";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  getOrders,
   createOrder,
   updateOrder,
   deleteOrder as deleteOrderFromFirestore,
-  getOrderById,
   batchUpdateOrders,
 } from "@/services/firestore";
-import { checkBDFraud } from "@/api/bdcourier";
-import BDCourierRatioResult from "@/components/orders/BDCourierRatioResult";
 import { useBulkCourierRatio } from "@/hooks/useBulkCourierRatio";
 import BdcourierRatioDialog from "@/components/orders/BdcourierRatioDialog";
-import { getCurrentBalance, getStatusByTrackingCode } from "@/api/steadfast";
+import { getCurrentBalance } from "@/api/steadfast";
 import { SteadfastBalanceResponse } from "@/api/steadfast";
-
-interface StatusQueueItem {
-  order: Order & { id: string };
-  resolve: (value: string) => void;
-  reject: (reason: any) => void;
-}
+import { useOrdersData } from "@/hooks/useOrdersData";
+import { useOrderStatus } from "@/hooks/useOrderStatus";
 
 const Orders = () => {
   const { user } = useAuth();
-  const [orders, setOrders] = useState<(Order & { id: string; deliveryStatus?: string })[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    orders,
+    setOrders,
+    loading,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    fetchOrders
+  } = useOrdersData();
+
+  const { handleCheckStatus, handleFetchAllSteadfastStatus } = useOrderStatus(orders, setOrders);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSteadfastModal, setShowSteadfastModal] = useState(false);
@@ -48,59 +49,18 @@ const Orders = () => {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [formLoading, setFormLoading] = useState(false);
-  const [bdcModalOpen, setBdcModalOpen] = useState(false);
-  const [bdcModalResult, setBdcModalResult] = useState<any | null>(null);
-  const [bdcCheckedPhones, setBdcCheckedPhones] = useState<string[]>([]);
   const [balance, setBalance] = useState<SteadfastBalanceResponse | null>(null);
 
   const hasManagePermissions = true;
 
-  // Status checking queue using DSA
-  const statusQueue = useMemo(() => {
-    const queue: StatusQueueItem[] = [];
-    let isProcessing = false;
-
-    const processQueue = async () => {
-      if (isProcessing || queue.length === 0) return;
-
-      isProcessing = true;
-      const { order, resolve, reject } = queue.shift()!;
-
-      try {
-        const result = await getStatusByTrackingCode(order["Steadfast-tracking-id"]);
-        setOrders((prevOrders) =>
-          prevOrders.map((o) =>
-            o.id === order.id ? { ...o, deliveryStatus: result.delivery_status } : o
-          )
-        );
-        resolve(result.delivery_status);
-      } catch (error) {
-        reject(error);
-      } finally {
-        isProcessing = false;
-        processQueue();
-      }
-    };
-
-    return {
-      enqueue: (order: Order & { id: string }) => {
-        return new Promise<string>((resolve, reject) => {
-          queue.push({ order, resolve, reject });
-          processQueue();
-        });
-      },
-    };
-  }, []);
-
   // Fetch Steadfast balance with caching
   const fetchBalance = useCallback(async () => {
-    // Check cache first (5 minutes)
     const cachedBalance = sessionStorage.getItem('steadfast_balance');
     const cacheTimestamp = sessionStorage.getItem('steadfast_balance_timestamp');
     
     if (cachedBalance && cacheTimestamp) {
       const age = Date.now() - parseInt(cacheTimestamp);
-      if (age < 5 * 60 * 1000) { // 5 minutes
+      if (age < 5 * 60 * 1000) {
         setBalance(JSON.parse(cachedBalance));
         return;
       }
@@ -109,7 +69,6 @@ const Orders = () => {
     try {
       const result = await getCurrentBalance();
       setBalance(result);
-      // Cache the result
       sessionStorage.setItem('steadfast_balance', JSON.stringify(result));
       sessionStorage.setItem('steadfast_balance_timestamp', Date.now().toString());
     } catch (error: any) {
@@ -122,7 +81,7 @@ const Orders = () => {
     }
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     fetchBalance();
   }, []);
 
@@ -137,28 +96,6 @@ const Orders = () => {
     );
   }, [orders, searchTerm, statusFilter]);
 
-  // Fetch orders with optimized pagination
-  const fetchOrders = useCallback(
-    async (page: number = 1) => {
-      try {
-        setLoading(true);
-        const data = await getOrders(page, 10);
-        setOrders(data.orders.map((o) => ({ ...o, deliveryStatus: undefined })));
-        setTotalPages(data.totalPages);
-      } catch (error: any) {
-        console.error("Error fetching orders:", error);
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    fetchOrders(currentPage);
-  }, [currentPage, fetchOrders]);
-
   // Debounced search
   const debouncedSearch = useCallback(
     debounce((value: string) => {
@@ -167,7 +104,7 @@ const Orders = () => {
     []
   );
 
-  // Handle order creation/editing with validation
+  // Handle order creation/editing
   const handleOrderSubmit = useCallback(
     async (data: OrderData, isEdit = false, orderId?: string) => {
       try {
@@ -189,9 +126,7 @@ const Orders = () => {
           await createOrder({
             ...orderData,
             "Steadfast-tracking-id": "",
-            Reference: orderData.Reference ?? "",
             Status: "Pending",
-            Notes: orderData.Notes ?? "",
           });
           toast({ title: "Success", description: "Order created successfully" });
           setShowCreateForm(false);
@@ -223,7 +158,7 @@ const Orders = () => {
         toast({ title: "Error", description: error.message, variant: "destructive" });
       }
     },
-    [orders]
+    [orders, setOrders]
   );
 
   // Handle Steadfast orders
@@ -246,7 +181,7 @@ const Orders = () => {
     [orders, selectedOrders]
   );
 
-  // Optimized Steadfast success handler with batch operations
+  // Optimized Steadfast success handler
   const handleSteadfastSuccess = useCallback(
     async (successOrders: (Order & { id: string })[], trackingIds: string[]) => {
       try {
@@ -260,18 +195,16 @@ const Orders = () => {
           return;
         }
 
-        // Prepare batch updates with proper typing
         const batchUpdates = successOrders.map((order, index) => ({
           id: order.id,
           data: {
-            Status: "Confirmed" as const, // Fix type issue with explicit const assertion
+            Status: "Confirmed" as const,
             "Steadfast-tracking-id": trackingIds[index],
             UpdatedAt: new Date().toISOString(),
           } as Partial<Order>
         }));
 
         try {
-          // Use batch update for better performance
           await batchUpdateOrders(batchUpdates);
           
           toast({
@@ -282,7 +215,6 @@ const Orders = () => {
           setShowSteadfastModal(false);
           fetchOrders(currentPage);
           
-          // Refresh balance after successful order
           setTimeout(() => {
             sessionStorage.removeItem('steadfast_balance');
             sessionStorage.removeItem('steadfast_balance_timestamp');
@@ -325,7 +257,6 @@ const Orders = () => {
 
       try {
         if (items.length > 1) {
-          // Convert Order & { id: string } to Order for bulk download by reconstructing Order objects
           const orderItems: Order[] = items.map((item) => ({
             ID: item.ID,
             Name: item.Name,
@@ -342,7 +273,6 @@ const Orders = () => {
           }));
           await downloadBulkInvoices(orderItems);
         } else {
-          // Convert Order & { id: string } to Order for single download by reconstructing Order object
           const orderItem: Order = {
             ID: items[0].ID,
             Name: items[0].Name,
@@ -389,140 +319,6 @@ const Orders = () => {
     setSelectedOrders(newSelected);
   }, [selectedOrders, filteredOrders]);
 
-  // Check single order status
-  const handleCheckStatus = useCallback(
-    async (order: Order & { id: string }) => {
-      if (!order["Steadfast-tracking-id"]) {
-        toast({
-          title: "Error",
-          description: "No tracking ID available for this order",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      try {
-        await statusQueue.enqueue(order);
-        toast({
-          title: "Status Retrieved",
-          description: `Status updated for order ${order.ID}`,
-        });
-      } catch (error: any) {
-        console.error("Error checking status:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to check delivery status",
-          variant: "destructive",
-        });
-      }
-    },
-    [statusQueue]
-  );
-
-  // Fetch status for all steadfast orders
-  const handleFetchAllSteadfastStatus = async () => {
-    try {
-      const steadfastOrders = orders.filter((o) => o["Steadfast-tracking-id"]);
-      if (!steadfastOrders.length) {
-        toast({
-          title: "No Steadfast Orders",
-          description: "No orders with tracking IDs found.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      toast({
-        title: "Checking Status",
-        description: `Checking status for ${steadfastOrders.length} orders...`,
-      });
-
-      const statusPromises = steadfastOrders.map((order) =>
-        statusQueue.enqueue(order).then(
-          (status) => ({ order, status }),
-          (error) => ({ order, error })
-        )
-      );
-
-      await Promise.all(statusPromises);
-
-      toast({
-        title: "Status Check Complete",
-        description: "All Steadfast order statuses updated in table",
-      });
-    } catch (err) {
-      toast({ title: "Error", description: "Failed to fetch status", variant: "destructive" });
-    }
-  };
-
-  // Check BDCourier order ratio
-  const handleCheckBDCourierRatio = async () => {
-    const baseOrders =
-      selectedOrders.size > 0
-        ? orders.filter((o) => selectedOrders.has(o.id))
-        : filteredOrders;
-
-    const uniquePhones = Array.from(
-      new Set(baseOrders.map((o) => o.Number).filter(Boolean))
-    );
-    if (!uniquePhones.length) {
-      toast({
-        title: "BDCourier Ratio",
-        description: "No customer phone numbers found in the selected or filtered orders.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    toast({
-      title: "BDCourier Check",
-      description: `Checking ${uniquePhones.length} phone${uniquePhones.length > 1 ? "s" : ""}...`,
-      variant: "default",
-    });
-
-    let aggregate: any = {};
-    let phonesChecked: string[] = [];
-    for (const phone of uniquePhones) {
-      try {
-        const data = await checkBDFraud(phone);
-        if (data?.courierData) {
-          for (const courier of ["pathao", "steadfast", "redx", "paperfly", "parceldex", "summary"]) {
-            if (!aggregate[courier])
-              aggregate[courier] = {
-                name: data.courierData[courier]?.name ?? courier,
-                total_parcel: 0,
-                success_parcel: 0,
-                cancelled_parcel: 0,
-                success_ratio: 0,
-              };
-            if (data.courierData[courier]) {
-              aggregate[courier].total_parcel += data.courierData[courier].total_parcel || 0;
-              aggregate[courier].success_parcel += data.courierData[courier].success_parcel || 0;
-              aggregate[courier].cancelled_parcel += data.courierData[courier].cancelled_parcel || 0;
-              aggregate[courier].success_ratio += data.courierData[courier].success_ratio || 0;
-            }
-          }
-          phonesChecked.push(phone);
-        }
-      } catch (err: any) {
-        // can collect errors if needed
-      }
-    }
-
-    if (phonesChecked.length === 0) {
-      toast({
-        title: "BDCourier",
-        description: "No BD Courier data found for given numbers.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setBdcCheckedPhones(phonesChecked);
-    setBdcModalResult(aggregate);
-    setBdcModalOpen(true);
-  };
-
   const {
     dialogOpen,
     courierData,
@@ -531,7 +327,7 @@ const Orders = () => {
     closeDialog,
   } = useBulkCourierRatio();
 
-  const handleCheckSingleBdCourierRatio = (order?: Order & { id: string }) => {
+  const handleCheckSingleFraudsCheck = (order?: Order & { id: string }) => {
     let number = "";
     if (order) {
       number = order.Number;
@@ -542,7 +338,7 @@ const Orders = () => {
           : filteredOrders[0];
       if (!baseOrder) {
         toast({
-          title: "BDCourier Ratio",
+          title: "Frauds Check",
           description: "No customer phone numbers found.",
           variant: "destructive",
         });
@@ -565,21 +361,21 @@ const Orders = () => {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight mb-1 md:mb-0">
             <span className="inline-flex items-center gap-2">
               <svg
-          className="w-6 h-6 text-green-500"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          viewBox="0 0 24 24"
+                className="w-6 h-6 text-green-500"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
               >
-          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="#dcfce7" />
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M8 12l2 2 4-4"
-            stroke="#22c55e"
-            strokeWidth="2"
-            fill="none"
-          />
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="#dcfce7" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8 12l2 2 4-4"
+                  stroke="#22c55e"
+                  strokeWidth="2"
+                  fill="none"
+                />
               </svg>
               Steadfast Balance
             </span>
@@ -626,7 +422,7 @@ const Orders = () => {
         onDownload={handleDownload}
         onSteadfast={handleSteadfast}
         onDelete={handleDeleteOrder}
-        onCheckBdCourierRatio={handleCheckSingleBdCourierRatio}
+        onCheckFraudsCheck={handleCheckSingleFraudsCheck}
         onCheckStatus={handleCheckStatus}
       />
 
@@ -636,44 +432,42 @@ const Orders = () => {
         onPageChange={setCurrentPage}
       />
 
-      <>
-        <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Order</DialogTitle>
-            </DialogHeader>
-            <OrderForm
-              defaultName={user?.Name || ""}
-              defaultNumber={user?.Number || ""}
-              onSubmit={(data) => handleOrderSubmit(data)}
-              onCancel={() => setShowCreateForm(false)}
-              loading={formLoading}
-            />
-          </DialogContent>
-        </Dialog>
+      <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Order</DialogTitle>
+          </DialogHeader>
+          <OrderForm
+            defaultName={user?.Name || ""}
+            defaultNumber={user?.Number || ""}
+            onSubmit={(data) => handleOrderSubmit(data)}
+            onCancel={() => setShowCreateForm(false)}
+            loading={formLoading}
+          />
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={!!editingOrder} onOpenChange={() => setEditingOrder(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Update Order</DialogTitle>
-            </DialogHeader>
-            <OrderForm
-              order={editingOrder || undefined}
-              onSubmit={(data) => handleOrderSubmit(data, true, editingOrder?.ID)}
-              onCancel={() => setEditingOrder(null)}
-              loading={formLoading}
-            />
-          </DialogContent>
-        </Dialog>
+      <Dialog open={!!editingOrder} onOpenChange={() => setEditingOrder(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Update Order</DialogTitle>
+          </DialogHeader>
+          <OrderForm
+            order={editingOrder || undefined}
+            onSubmit={(data) => handleOrderSubmit(data, true, editingOrder?.ID)}
+            onCancel={() => setEditingOrder(null)}
+            loading={formLoading}
+          />
+        </DialogContent>
+      </Dialog>
 
-        <SteadfastOrderModal
-          orders={steadfastOrders}
-          isOpen={showSteadfastModal}
-          onClose={() => setShowSteadfastModal(false)}
-          onSuccess={handleSteadfastSuccess}
-          isBulk={steadfastOrders.length > 1}
-        />
-      </>
+      <SteadfastOrderModal
+        orders={steadfastOrders}
+        isOpen={showSteadfastModal}
+        onClose={() => setShowSteadfastModal(false)}
+        onSuccess={handleSteadfastSuccess}
+        isBulk={steadfastOrders.length > 1}
+      />
 
       <OrderDetailsModal
         order={viewingOrder}
@@ -682,7 +476,6 @@ const Orders = () => {
         onEdit={setEditingOrder}
         onDelete={handleDeleteOrder}
         onDownloadInvoice={(order: Order) => {
-          // Find the order with id from our orders array
           const orderWithId = orders.find(o => o.ID === order.ID);
           if (orderWithId) {
             handleDownload(orderWithId);

@@ -185,7 +185,6 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
             trackingId: item.tracking_code,
           });
         } else {
-          // Handle message properly with fallback
           let errorMessage = item.message || item.status || 'Unknown error';
           if (errorMessage.includes('duplicate')) {
             errorMessage = 'Order already exists in Steadfast';
@@ -204,7 +203,6 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
     } catch (error: any) {
       log('createBulkOrders', 'Error creating bulk orders', error);
       
-      // If the entire bulk request fails, mark all as failed
       const failed = orders.map(order => ({
         order,
         error: error.message || 'Bulk request failed'
@@ -236,12 +234,10 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
             variant: result.failed.length === 0 ? "default" : "destructive",
           });
 
-          // Call success handler for successful orders
           onSuccess(successfulOrders, trackingIds);
         }
 
         if (result.failed.length > 0) {
-          // Set errors for failed orders
           const errorMap: { [key: string]: string } = {};
           result.failed.forEach(({ order, error }) => {
             errorMap[order.ID] = error;
@@ -255,12 +251,10 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
           });
         }
 
-        // Only close modal if all orders succeeded
         if (result.failed.length === 0) {
           onClose();
         }
       } else {
-        // Single order processing
         const { order, trackingId } = await createSingleOrder(orders[0]);
         
         toast({
@@ -283,10 +277,8 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
     }
   }, [isBulk, orders, createSingleOrder, createBulkOrders, onSuccess, onClose]);
 
-  // Memoized order list to prevent re-renders
   const memoizedOrders = useMemo(() => orders, [orders]);
 
-  // Get status icon for orders
   const getOrderStatusIcon = (order: Order) => {
     if (processingResult) {
       const successful = processingResult.successful.find(r => r.order.ID === order.ID);
@@ -299,6 +291,8 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
     if (errors[order.ID]) return <AlertTriangle className="h-4 w-4 text-red-500" />;
     return null;
   };
+
+  const showSendButton = (!processingResult || processingResult.failed.length > 0);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -403,7 +397,7 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
             >
               {processingResult && processingResult.failed.length > 0 ? 'Close' : 'Cancel'}
             </Button>
-            {(!processingResult || processingResult.failed.length > 0) && (
+            {showSendButton && (
               <Button onClick={handleCreateSteadfastOrder} disabled={loading}>
                 {loading ? (
                   'Processing...'

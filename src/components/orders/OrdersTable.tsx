@@ -1,3 +1,4 @@
+
 import React from "react";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -5,8 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Eye, Edit, Download, Truck, Trash2, Package, RefreshCw } from "lucide-react";
 import { Order } from "@/types";
-import { toast } from "@/hooks/use-toast";
-import { getStatusByTrackingCode } from "@/api/steadfast";
 
 interface OrdersTableProps {
   orders: (Order & { id: string; deliveryStatus?: string })[];
@@ -20,7 +19,7 @@ interface OrdersTableProps {
   onDownload: (order: Order & { id: string }) => void;
   onSteadfast: (order: Order & { id: string }) => void;
   onDelete: (id: string) => void;
-  onCheckBdCourierRatio?: (order: Order & { id: string }) => void;
+  onCheckFraudsCheck?: (order: Order & { id: string }) => void;
   onCheckStatus: (order: Order & { id: string }) => Promise<void>;
 }
 
@@ -36,7 +35,7 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
   onDownload,
   onSteadfast,
   onDelete,
-  onCheckBdCourierRatio,
+  onCheckFraudsCheck,
   onCheckStatus,
 }) => {
   if (!filteredOrders.length) {
@@ -71,7 +70,7 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
             <TableHead>Tracking</TableHead>
             <TableHead>Date</TableHead>
             <TableHead className="text-right">Actions</TableHead>
-            <TableHead>BD Courier</TableHead>
+            <TableHead>Frauds Check</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -176,9 +175,9 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => onCheckBdCourierRatio?.(o)}
+                    onClick={() => onCheckFraudsCheck?.(o)}
                   >
-                    Check BD Courier
+                    Check Frauds
                   </Button>
                 </div>
               </TableCell>
