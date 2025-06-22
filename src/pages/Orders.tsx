@@ -682,9 +682,11 @@ const Orders = () => {
         onEdit={setEditingOrder}
         onDelete={handleDeleteOrder}
         onDownloadInvoice={(order: Order) => {
-          // Create a temporary object with id for the download function
-          const orderWithId = { ...order, id: orders.find(o => o.ID === order.ID)?.id || '' };
-          handleDownload(orderWithId);
+          // Find the order with id from our orders array
+          const orderWithId = orders.find(o => o.ID === order.ID);
+          if (orderWithId) {
+            handleDownload(orderWithId);
+          }
         }}
       />
 
