@@ -147,20 +147,40 @@ export const getStatusByInvoice = async (invoice: string): Promise<SteadfastStat
 /**
  * Check delivery status by tracking code
  */
-export const getStatusByTrackingCode = async (trackingCode: string): Promise<SteadfastStatusResponse> => {
+export const getStatusByTrackingCode = async (
+  trackingCode: string
+): Promise<SteadfastStatusResponse> => {
   if (!validateSteadfastConfig()) throw new Error('Steadfast API credentials missing!');
 
-  const response = await fetch(`${API_CONFIG.STEADFAST_API_URL}/status_by_trackingcode/${trackingCode}`, {
-    method: 'GET',
-    headers: HEADERS,
-  });
+  const response = await fetch(
+    `${API_CONFIG.STEADFAST_API_URL}/status_by_trackingcode/${trackingCode}`,
+    {
+      method: 'GET',
+      headers: HEADERS,
+    }
+  );
+  console.log('Sending request to:', `${API_CONFIG.STEADFAST_API_URL}/status_by_trackingcode/${trackingCode}`);
+console.log('Headers:', HEADERS);
+console.log('API Key:', API_CONFIG.STEADFAST_API_KEY);
+console.log('Secret Key:', API_CONFIG.STEADFAST_SECRET_KEY);
 
-  const result = await response.json();
-  if (!response.ok || result.status !== 200) {
-    throw new Error('Failed to get status');
+  const text = await response.text();
+
+  let result: any;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    // If response is not JSON, throw the plain text error (like "Unauthorized Access")
+    throw new Error(text);
   }
+
+  if (!response.ok || result.status !== 200) {
+    throw new Error(result?.message || 'Failed to get status');
+  }
+
   return result;
 };
+
 
 /**
  * Check current balance
