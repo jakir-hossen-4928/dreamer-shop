@@ -21,6 +21,7 @@ export interface SteadfastOrderResult {
   tracking_code: string;
   status: string;
   note?: string;
+  message?: string; // Add missing message property
 }
 
 export interface SteadfastStatusResponse {

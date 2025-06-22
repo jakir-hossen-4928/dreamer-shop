@@ -260,15 +260,14 @@ const Orders = () => {
           return;
         }
 
-        // Prepare batch updates
+        // Prepare batch updates with proper typing
         const batchUpdates = successOrders.map((order, index) => ({
           id: order.id,
           data: {
-            ...order,
-            Status: "Confirmed",
+            Status: "Confirmed" as const, // Fix type issue with explicit const assertion
             "Steadfast-tracking-id": trackingIds[index],
             UpdatedAt: new Date().toISOString(),
-          }
+          } as Partial<Order>
         }));
 
         try {
@@ -313,7 +312,7 @@ const Orders = () => {
 
   // Download invoices
   const handleDownload = useCallback(
-    async (order?: Order) => {
+    async (order?: Order & { id: string }) => {
       const items = order ? [order] : orders.filter((o) => selectedOrders.has(o.id));
       if (!items.length) {
         toast({
@@ -326,9 +325,13 @@ const Orders = () => {
 
       try {
         if (items.length > 1) {
-          await downloadBulkInvoices(items);
+          // Convert Order & { id: string } to Order for bulk download
+          const orderItems = items.map(({ id, ...order }) => order as Order);
+          await downloadBulkInvoices(orderItems);
         } else {
-          await downloadSingleInvoice(items[0]);
+          // Convert Order & { id: string } to Order for single download
+          const { id, ...orderItem } = items[0];
+          await downloadSingleInvoice(orderItem as Order);
         }
         toast({
           title: "Success",
@@ -652,7 +655,11 @@ const Orders = () => {
         onClose={() => setViewingOrder(null)}
         onEdit={setEditingOrder}
         onDelete={handleDeleteOrder}
-        onDownload={handleDownload}
+        onDownloadInvoice={(order: Order) => {
+          // Create a temporary object with id for the download function
+          const orderWithId = { ...order, id: orders.find(o => o.ID === order.ID)?.id || '' };
+          handleDownload(orderWithId);
+        }}
       />
 
       <BdcourierRatioDialog

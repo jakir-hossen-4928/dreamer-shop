@@ -185,6 +185,7 @@ const SteadfastOrderModal: React.FC<SteadfastOrderModalProps> = ({
             trackingId: item.tracking_code,
           });
         } else {
+          // Handle message properly with fallback
           let errorMessage = item.message || item.status || 'Unknown error';
           if (errorMessage.includes('duplicate')) {
             errorMessage = 'Order already exists in Steadfast';
