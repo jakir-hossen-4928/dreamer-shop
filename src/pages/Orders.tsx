@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import OrdersToolbar from "@/components/orders/OrdersToolbar";
@@ -181,7 +180,7 @@ const Orders = () => {
     [orders, selectedOrders]
   );
 
-  // Optimized Steadfast success handler
+  // Fixed Steadfast success handler - only update orders that were actually processed
   const handleSteadfastSuccess = useCallback(
     async (successOrders: (Order & { id: string })[], trackingIds: string[]) => {
       try {
@@ -195,6 +194,10 @@ const Orders = () => {
           return;
         }
 
+        // Create a set of order IDs that were successfully processed
+        const processedOrderIds = new Set(successOrders.map(order => order.id));
+
+        // Only update orders that were actually processed in this Steadfast operation
         const batchUpdates = successOrders.map((order, index) => ({
           id: order.id,
           data: {
@@ -207,14 +210,32 @@ const Orders = () => {
         try {
           await batchUpdateOrders(batchUpdates);
           
+          // Update local state only for the processed orders
+          setOrders(prevOrders => 
+            prevOrders.map(order => {
+              if (processedOrderIds.has(order.id)) {
+                const updateIndex = successOrders.findIndex(o => o.id === order.id);
+                if (updateIndex !== -1) {
+                  return {
+                    ...order,
+                    Status: "Confirmed" as const,
+                    "Steadfast-tracking-id": trackingIds[updateIndex],
+                    UpdatedAt: new Date().toISOString(),
+                  };
+                }
+              }
+              return order;
+            })
+          );
+          
           toast({
             title: "Success",
             description: `${successOrders.length} order${successOrders.length > 1 ? "s" : ""} confirmed with tracking ID${successOrders.length > 1 ? "s" : ""}`,
           });
           
           setShowSteadfastModal(false);
-          fetchOrders(currentPage);
           
+          // Clear balance cache to refresh on next fetch
           setTimeout(() => {
             sessionStorage.removeItem('steadfast_balance');
             sessionStorage.removeItem('steadfast_balance_timestamp');
@@ -239,7 +260,7 @@ const Orders = () => {
         });
       }
     },
-    [currentPage, fetchOrders, fetchBalance]
+    [currentPage, fetchOrders, fetchBalance, setOrders]
   );
 
   // Download invoices
