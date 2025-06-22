@@ -206,9 +206,9 @@ export function generateInvoice(
  * Download single invoice
  * @param order Order data from Orders.tsx
  */
-export const downloadSingleInvoice = async (order: Order & { id: string }) => {
+export const downloadSingleInvoice = async (order: Order) => {
   const invoiceOrder: InvoiceOrder = {
-    id: order.id,
+    id: order.ID,
     orderNumber: order.ID,
     createdAt: order.CreatedAt,
     items: [
@@ -233,7 +233,7 @@ export const downloadSingleInvoice = async (order: Order & { id: string }) => {
  * Download bulk invoices
  * @param orders Array of order data from Orders.tsx
  */
-export const downloadBulkInvoices = async (orders: (Order & { id: string })[]) => {
+export const downloadBulkInvoices = async (orders: Order[]) => {
   for (const order of orders) {
     await downloadSingleInvoice(order);
     // Add delay between downloads to prevent browser overload
